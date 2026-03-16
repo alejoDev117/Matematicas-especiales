@@ -7,11 +7,13 @@ def show_menu():
         print("\nBienvenido al Shazam Casero!")
         print("1. Construir/actualizar repositorio de canciones")
         print("2. Reconocer canción")
-        print("3. Salir")
+        print("3. Lista de caciones")
+        print("4. Salir")
         choice = input("Elige una opción: ").strip()
         
         if choice == '1':
-            songs_dir = input("Ruta a carpeta de canciones (e.g., data/songs/): ").strip()
+            songs_dir = "data/songs"
+            print(f"Construyendo base de datos desde: {songs_dir}")
             build_database(songs_dir)
             print("Repositorio actualizado!")
         
@@ -28,10 +30,15 @@ def show_menu():
                 print("Opción inválida.")
                 continue
             print(f"Canción detectada: {song}")
-        
+
         elif choice == '3':
+            from scripts.view_db import view_song_list
+            view_song_list()
+
+        elif choice == '4':
             print("¡Hasta luego!")
             sys.exit(0)
+
         
         else:
             print("Opción inválida. Intenta de nuevo.")

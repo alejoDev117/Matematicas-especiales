@@ -10,7 +10,7 @@ def build_database(songs_dir, db_path='data/db.pkl'):
             db = pickle.load(f)
 
     for song_file in os.listdir(songs_dir):
-        if not song_file.endswith('.wav'): continue
+        if not song_file.lower().endswith(('.wav', '.mp3', '.m4a')): continue
         full_path = os.path.join(songs_dir, song_file)
         fingerprints = extract_fingerprints(full_path)
         for hash_key, offset in fingerprints:
