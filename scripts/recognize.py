@@ -36,32 +36,53 @@ def recognize_from_file(file_path):
     db = load_db()
     return find_matches(fingerprints, db)
 
+
 def recognize_from_mic(record_seconds=10):
-    """Graba del mic y reconoce."""
+    """Graba del mic, guarda el archivo en el escritorio y luego lo reconoce."""
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
     RATE = 44100
     CHUNK = 1024
 
     audio = pyaudio.PyAudio()
-    stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE, input=True, frames_per_buffer=CHUNK)
-    print("Escuchando... (10 segundos)")
+
+    # Iniciar flujo de captura
+    stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE,
+                        input=True, frames_per_buffer=CHUNK)
+
+    print(f">>> ESCUCHANDO ({record_seconds}s)... Habla o pon música ahora.")
     frames = []
+
     for _ in range(0, int(RATE / CHUNK * record_seconds)):
         data = stream.read(CHUNK)
         frames.append(data)
-    print("Grabación terminada.")
+
+    print(">>> GRABACIÓN COMPLETA.")
+
+    # Cerrar el flujo del micrófono
     stream.stop_stream()
     stream.close()
     audio.terminate()
 
-    temp_wav = tempfile.mktemp(suffix='.wav')
-    with wave.open(temp_wav, 'wb') as wf:
+    # --- LÓGICA DE GUARDADO EN RUTA ESPECÍFICA ---
+    output_dir = r"C:\Users\USUARIO\Desktop\Matematicas-especiales\data\output"
+    output_filename = os.path.join(output_dir, "test_microfono.wav")
+
+    # Crear la carpeta si no existe para evitar errores
+    if not os.path.exists(output_dir):
+        os.makedirs(output_dir)
+
+    # Guardar el archivo .wav
+    with wave.open(output_filename, 'wb') as wf:
         wf.setnchannels(CHANNELS)
         wf.setsampwidth(audio.get_sample_size(FORMAT))
         wf.setframerate(RATE)
         wf.writeframes(b''.join(frames))
 
-    result = recognize_from_file(temp_wav)
-    os.remove(temp_wav)
+    print(f"--- Archivo guardado para verificación: {output_filename} ---")
+
+    # --- CONTINUAR CON EL RECONOCIMIENTO ---
+    # Ahora enviamos la ruta del archivo recién guardado a la función de análisis
+    result = recognize_from_file(output_filename)
+
     return result
