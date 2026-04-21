@@ -16,16 +16,15 @@ def extract_fingerprints(audio_file, use_laplace=False):
     fingerprints = []
     total_peaks = 0
 
-    step = 10  # Procesar solo cada 10 ventanas temporales
+    step = 1 # Procesar solo cada 1 ventanas temporales
     for time_idx in range(0, Sxx.shape[1], step):
         col = Sxx[:, time_idx]
 
         # Muy restrictivo: solo picos fuertes
-        peaks, props = find_peaks(col, prominence=5.0, distance=20)  # prominence alto!
+        peaks, props = find_peaks(col, prominence=2.0, distance=10)  # prominence alto!
 
         if len(peaks) > 0:
-            # Tomamos máximo 4 picos (los primeros que detecta, suelen ser los más fuertes)
-            peaks = peaks[:4]  # simple slice en vez de ordenar por height
+            peaks = peaks[:6]  # simple slice en vez de ordenar por height
             peak_freqs = f[peaks]
             peak_time = t[time_idx]
 
