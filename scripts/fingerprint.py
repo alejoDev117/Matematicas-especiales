@@ -21,7 +21,7 @@ def extract_fingerprints(audio_file, use_laplace=False):
         col = Sxx[:, time_idx]
 
         # Muy restrictivo: solo picos fuertes
-        peaks, props = find_peaks(col, prominence=2.0, distance=10)  # prominence alto!
+        peaks, props = find_peaks(col, prominence=2.0, distance=10it )  # prominence alto!
 
         if len(peaks) > 0:
             peaks = peaks[:6]  # simple slice en vez de ordenar por height
