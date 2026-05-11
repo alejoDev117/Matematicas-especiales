@@ -72,6 +72,18 @@ def get_output_dir():
     return output_dir
 
 
+def get_spectrogram_output_dir(clear_existing=False):
+    output_dir = get_output_dir() / 'espectogramas'
+    output_dir.mkdir(parents=True, exist_ok=True)
+
+    if clear_existing:
+        for image_file in output_dir.glob('*'):
+            if image_file.is_file() and image_file.suffix.lower() in ('.png', '.jpg', '.jpeg', '.webp'):
+                image_file.unlink(missing_ok=True)
+
+    return output_dir
+
+
 def sanitize_name(name):
     clean = ''.join(c if c.isalnum() or c in ('-', '_') else '_' for c in str(name))
     return clean.strip('_') or 'audio'
@@ -124,6 +136,8 @@ def save_spectrogram_figure(audio_path, output_dir, output_name, n_fft=2048, sta
     fig.tight_layout()
 
     output_path = Path(output_dir) / output_name
+    if output_path.exists():
+        output_path.unlink()
     fig.savefig(output_path, dpi=150)
     plt.close(fig)
     return str(output_path)
@@ -145,6 +159,8 @@ def save_offset_histogram(offset_counts, output_dir, output_name, song_name):
     fig.tight_layout()
 
     output_path = Path(output_dir) / output_name
+    if output_path.exists():
+        output_path.unlink()
     fig.savefig(output_path, dpi=150)
     plt.close(fig)
     return str(output_path)
