@@ -9,7 +9,7 @@ from scripts.fingerprint import extract_fingerprints
 from scripts.signal_processing import (
     apply_cleaning,
     get_project_root,
-    get_output_dir,
+    get_spectrogram_output_dir,
     build_output_name,
     save_spectrogram_figure,
     save_offset_histogram,
@@ -116,7 +116,7 @@ def resolve_song_path(song_name):
 
 
 def save_recognition_plots(input_audio_path, result):
-    output_dir = get_output_dir()
+    output_dir = get_spectrogram_output_dir(clear_existing=True)
     input_name = Path(input_audio_path).stem
 
     input_plot = save_spectrogram_figure(
@@ -193,6 +193,15 @@ def recognize_from_file(file_path):
     return f"{result['best_song']} (Score: {result['max_score']})"
 
 
+def recognize_from_file_details(file_path, db=None, save_plots=True):
+    fingerprints = extract_fingerprints(file_path)
+    local_db = db if db is not None else load_db()
+    result = find_matches_details(fingerprints, local_db)
+    if save_plots:
+        save_recognition_plots(file_path, result)
+    return result
+
+
 def recognize_from_mic(record_seconds=10):
     """Graba del mic, guarda el audio original, limpia y guarda el audio limpio."""
     FORMAT = pyaudio.paInt16
@@ -243,7 +252,8 @@ def recognize_from_mic(record_seconds=10):
     # --- 3. GUARDADO DEL AUDIO LIMPIO ---
     cleaned_filename = os.path.join(output_dir, "audio_microfono_LIMPIO.wav")
 
-    # Convertimos de nuevo a int16 para el formato WAV
+    # Clip defensivo para evitar distorsión por overflow al volver a int16.
+    cleaned_audio = np.clip(cleaned_audio, -1.0, 1.0)
     cleaned_ints = (cleaned_audio * 32767).astype(np.int16)
     with wave.open(cleaned_filename, 'wb') as wf:
         wf.setnchannels(CHANNELS)
@@ -253,6 +263,28 @@ def recognize_from_mic(record_seconds=10):
 
     print(f"--- Audio filtrado guardado: {cleaned_filename} ---")
 
-    # --- 4. RECONOCIMIENTO ---
-    # Usamos el archivo limpio para el análisis de fingerprints
-    return recognize_from_file(cleaned_filename)
+    # --- 4. RECONOCIMIENTO ROBUSTO ---
+    # Evaluamos ORIGINAL y LIMPIO, y nos quedamos con el de mayor score.
+    db = load_db()
+
+    result_original = recognize_from_file_details(original_filename, db=db, save_plots=False)
+    result_cleaned = recognize_from_file_details(cleaned_filename, db=db, save_plots=False)
+
+    best_result = result_cleaned
+    best_source = cleaned_filename
+
+    if result_original['max_score'] > result_cleaned['max_score']:
+        best_result = result_original
+        best_source = original_filename
+
+    print(
+        f"--- Score ORIGINAL: {result_original['max_score']} | "
+        f"Score LIMPIO: {result_cleaned['max_score']} | "
+        f"Fuente elegida: {Path(best_source).name} ---"
+    )
+
+    save_recognition_plots(best_source, best_result)
+
+    if best_result['best_song'] == 'Desconocida':
+        return f"Desconocida ({best_result['status']})"
+    return f"{best_result['best_song']} (Score: {best_result['max_score']})"
