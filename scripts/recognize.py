@@ -4,8 +4,17 @@ import os
 import pickle
 import numpy as np
 from collections import defaultdict
+from pathlib import Path
 from scripts.fingerprint import extract_fingerprints
-from scripts.signal_processing import apply_cleaning  # Importamos tu nueva función de limpieza
+from scripts.signal_processing import (
+    apply_cleaning,
+    get_project_root,
+    get_output_dir,
+    build_output_name,
+    save_spectrogram_figure,
+    save_offset_histogram,
+    load_audio,
+)
 
 
 def load_db(db_path='data/db.pkl'):
@@ -15,7 +24,7 @@ def load_db(db_path='data/db.pkl'):
         return pickle.load(f)
 
 
-def find_matches(sample_fingerprints, db):
+def find_matches_details(sample_fingerprints, db):
     """
     Busca coincidencias usando un histograma de offsets.
     Esto asegura que los hashes coincidan en el MISMO ORDEN TEMPORAL.
@@ -31,31 +40,157 @@ def find_matches(sample_fingerprints, db):
                 histograms[song][delta_offset] += 1
 
     if not histograms:
-        return "Desconocida (Sin coincidencias)"
+        return {
+            'best_song': 'Desconocida',
+            'max_score': 0,
+            'status': 'Sin coincidencias',
+            'histograms': histograms,
+            'best_delta': None,
+            'sample_min_offset': None,
+            'sample_max_offset': None,
+        }
 
     best_song = "Desconocida"
     max_score = 0
 
     # Buscamos la canción que tenga el pico más alto en su histograma
+    best_delta = None
     for song, offsets in histograms.items():
         # El score es el máximo de coincidencias que comparten un mismo desfase temporal
         current_max = max(offsets.values())
         if current_max > max_score:
             max_score = current_max
             best_song = song
+            best_delta = max(offsets.items(), key=lambda item: item[1])[0]
+
+    if sample_fingerprints:
+        sample_offsets = [offset for _, offset in sample_fingerprints]
+        sample_min_offset = float(min(sample_offsets))
+        sample_max_offset = float(max(sample_offsets))
+    else:
+        sample_min_offset = None
+        sample_max_offset = None
 
     # Umbral de confianza: Si el mejor match tiene muy pocos puntos alineados, es ruido
     if max_score < 4:
-        return f"Desconocida (Confianza baja: {max_score} matches)"
+        return {
+            'best_song': 'Desconocida',
+            'max_score': max_score,
+            'status': f'Confianza baja: {max_score} matches',
+            'histograms': histograms,
+            'best_delta': best_delta,
+            'sample_min_offset': sample_min_offset,
+            'sample_max_offset': sample_max_offset,
+        }
 
-    return f"{best_song} (Score: {max_score})"
+    return {
+        'best_song': best_song,
+        'max_score': max_score,
+        'status': 'OK',
+        'histograms': histograms,
+        'best_delta': best_delta,
+        'sample_min_offset': sample_min_offset,
+        'sample_max_offset': sample_max_offset,
+    }
+
+
+def find_matches(sample_fingerprints, db):
+    result = find_matches_details(sample_fingerprints, db)
+    if result['best_song'] == 'Desconocida':
+        return f"Desconocida ({result['status']})"
+    return f"{result['best_song']} (Score: {result['max_score']})"
+
+
+def resolve_song_path(song_name):
+    songs_dir = get_project_root() / 'data' / 'songs'
+    candidate = songs_dir / song_name
+    if candidate.exists():
+        return candidate
+
+    # Fallback por si cambia la extensión o hay diferencias de mayúsculas.
+    song_base = Path(song_name).stem.lower()
+    for entry in songs_dir.glob('*'):
+        if entry.is_file() and entry.stem.lower() == song_base:
+            return entry
+    return None
+
+
+def save_recognition_plots(input_audio_path, result):
+    output_dir = get_output_dir()
+    input_name = Path(input_audio_path).stem
+
+    input_plot = save_spectrogram_figure(
+        input_audio_path,
+        output_dir,
+        build_output_name('entrada', input_name, 'spectrograma')
+    )
+    print(f"--- Espectrograma entrada guardado: {input_plot} ---")
+
+    best_song = result['best_song']
+    if best_song == 'Desconocida':
+        print('--- No se generó espectrograma de canción por falta de match confiable ---')
+        return
+
+    song_path = resolve_song_path(best_song)
+    if song_path is None:
+        print(f"--- No se encontró el archivo físico de la canción: {best_song} ---")
+        return
+
+    # Calcula el fragmento de la canción que mejor alinea con la entrada.
+    best_delta = result.get('best_delta')
+    sample_min_offset = result.get('sample_min_offset')
+    sample_max_offset = result.get('sample_max_offset')
+
+    song_start_sec = None
+    song_end_sec = None
+
+    if best_delta is not None and sample_min_offset is not None and sample_max_offset is not None:
+        margin_sec = 1.0
+        song_start_sec = max(0.0, float(best_delta + sample_min_offset - margin_sec))
+        song_end_sec = float(best_delta + sample_max_offset + margin_sec)
+
+        # Si por redondeos el tramo sale inválido, usamos la duración del input como respaldo.
+        if song_end_sec <= song_start_sec:
+            fs_in, data_in = load_audio(str(input_audio_path))
+            input_duration = len(data_in) / fs_in if fs_in > 0 else 0
+            song_end_sec = song_start_sec + max(1.0, input_duration)
+
+    fragment_tag = 'spectrograma_fragmento_match'
+    if song_start_sec is not None and song_end_sec is not None:
+        fragment_tag = f"spectrograma_fragmento_{int(song_start_sec)}s_{int(song_end_sec)}s"
+
+    song_plot = save_spectrogram_figure(
+        song_path,
+        output_dir,
+        build_output_name('match', Path(best_song).stem, fragment_tag),
+        start_sec=song_start_sec,
+        end_sec=song_end_sec,
+    )
+    if song_start_sec is not None and song_end_sec is not None:
+        print(f"--- Espectrograma match (fragmento {song_start_sec:.2f}s-{song_end_sec:.2f}s) guardado: {song_plot} ---")
+    else:
+        print(f"--- Espectrograma match guardado: {song_plot} ---")
+
+    offsets = result['histograms'].get(best_song, {})
+    histogram_plot = save_offset_histogram(
+        offsets,
+        output_dir,
+        build_output_name('match', Path(best_song).stem, 'histograma_desfases'),
+        best_song,
+    )
+    if histogram_plot:
+        print(f"--- Histograma de desfases guardado: {histogram_plot} ---")
 
 
 def recognize_from_file(file_path):
     # Aquí usamos el extract_fingerprints con los ajustes de Hash Relativo que hicimos antes
     fingerprints = extract_fingerprints(file_path)
     db = load_db()
-    return find_matches(fingerprints, db)
+    result = find_matches_details(fingerprints, db)
+    save_recognition_plots(file_path, result)
+    if result['best_song'] == 'Desconocida':
+        return f"Desconocida ({result['status']})"
+    return f"{result['best_song']} (Score: {result['max_score']})"
 
 
 def recognize_from_mic(record_seconds=10):
@@ -82,10 +217,7 @@ def recognize_from_mic(record_seconds=10):
 
     # --- 1. GUARDADO DEL AUDIO ORIGINAL (CRUDO) ---
     raw_bytes = b''.join(frames)
-    output_dir = r"C:\Users\USUARIO\Desktop\Matematicas-especiales\data\output"
-
-    if not os.path.exists(output_dir):
-        os.makedirs(output_dir)
+    output_dir = str(get_output_dir())
 
     original_filename = os.path.join(output_dir, "audio_microfono_ORIGINAL.wav")
     with wave.open(original_filename, 'wb') as wf:
