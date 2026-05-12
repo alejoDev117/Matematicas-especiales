@@ -10,6 +10,7 @@ from scripts.signal_processing import (
     apply_cleaning,
     get_project_root,
     get_spectrogram_output_dir,
+    get_output_dir,
     build_output_name,
     save_spectrogram_figure,
     save_offset_histogram,
@@ -24,10 +25,14 @@ def load_db(db_path='data/db.pkl'):
         return pickle.load(f)
 
 
-def find_matches_details(sample_fingerprints, db):
+def find_matches_details(sample_fingerprints, db, confidence_threshold=4):
     """
     Busca coincidencias usando un histograma de offsets.
     Esto asegura que los hashes coincidan en el MISMO ORDEN TEMPORAL.
+    
+    confidence_threshold: Score mínimo requerido para considerar una coincidencia válida.
+                         Micrófono: 2-3 (más ruidoso)
+                         Archivos: 4+ (más limpio)
     """
     # histograms[cancion][desfase] = cuenta
     histograms = defaultdict(lambda: defaultdict(int))
@@ -72,7 +77,7 @@ def find_matches_details(sample_fingerprints, db):
         sample_max_offset = None
 
     # Umbral de confianza: Si el mejor match tiene muy pocos puntos alineados, es ruido
-    if max_score < 4:
+    if max_score < confidence_threshold:
         return {
             'best_song': 'Desconocida',
             'max_score': max_score,
@@ -95,7 +100,7 @@ def find_matches_details(sample_fingerprints, db):
 
 
 def find_matches(sample_fingerprints, db):
-    result = find_matches_details(sample_fingerprints, db)
+    result = find_matches_details(sample_fingerprints, db, confidence_threshold=4)
     if result['best_song'] == 'Desconocida':
         return f"Desconocida ({result['status']})"
     return f"{result['best_song']} (Score: {result['max_score']})"
@@ -155,19 +160,16 @@ def save_recognition_plots(input_audio_path, result):
             input_duration = len(data_in) / fs_in if fs_in > 0 else 0
             song_end_sec = song_start_sec + max(1.0, input_duration)
 
-    fragment_tag = 'spectrograma_fragmento_match'
-    if song_start_sec is not None and song_end_sec is not None:
-        fragment_tag = f"spectrograma_fragmento_{int(song_start_sec)}s_{int(song_end_sec)}s"
+    fragment_tag = 'spectrograma_completo_match'
 
     song_plot = save_spectrogram_figure(
         song_path,
         output_dir,
         build_output_name('match', Path(best_song).stem, fragment_tag),
-        start_sec=song_start_sec,
-        end_sec=song_end_sec,
+        highlight_range=(song_start_sec, song_end_sec),
     )
     if song_start_sec is not None and song_end_sec is not None:
-        print(f"--- Espectrograma match (fragmento {song_start_sec:.2f}s-{song_end_sec:.2f}s) guardado: {song_plot} ---")
+        print(f"--- Espectrograma completo con match resaltado ({song_start_sec:.2f}s-{song_end_sec:.2f}s) guardado: {song_plot} ---")
     else:
         print(f"--- Espectrograma match guardado: {song_plot} ---")
 
@@ -193,10 +195,11 @@ def recognize_from_file(file_path):
     return f"{result['best_song']} (Score: {result['max_score']})"
 
 
-def recognize_from_file_details(file_path, db=None, save_plots=True):
-    fingerprints = extract_fingerprints(file_path)
+def recognize_from_file_details(file_path, db=None, save_plots=True, from_mic=False):
+    fingerprints = extract_fingerprints(file_path, from_mic=from_mic)
     local_db = db if db is not None else load_db()
-    result = find_matches_details(fingerprints, local_db)
+    confidence_threshold = 2 if from_mic else 4
+    result = find_matches_details(fingerprints, local_db, confidence_threshold=confidence_threshold)
     if save_plots:
         save_recognition_plots(file_path, result)
     return result
@@ -207,7 +210,7 @@ def recognize_from_mic(record_seconds=10):
     FORMAT = pyaudio.paInt16
     CHANNELS = 1
     RATE = 44100
-    CHUNK = 1024
+    CHUNK = 2048  # Aumentado de 1024 para mejor estabilidad
 
     audio = pyaudio.PyAudio()
     stream = audio.open(format=FORMAT, channels=CHANNELS, rate=RATE,
@@ -267,8 +270,8 @@ def recognize_from_mic(record_seconds=10):
     # Evaluamos ORIGINAL y LIMPIO, y nos quedamos con el de mayor score.
     db = load_db()
 
-    result_original = recognize_from_file_details(original_filename, db=db, save_plots=False)
-    result_cleaned = recognize_from_file_details(cleaned_filename, db=db, save_plots=False)
+    result_original = recognize_from_file_details(original_filename, db=db, save_plots=False, from_mic=True)
+    result_cleaned = recognize_from_file_details(cleaned_filename, db=db, save_plots=False, from_mic=True)
 
     best_result = result_cleaned
     best_source = cleaned_filename

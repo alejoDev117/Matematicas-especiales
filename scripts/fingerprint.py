@@ -3,7 +3,7 @@ from scipy.signal import find_peaks
 from scripts.signal_processing import load_audio, apply_stft, apply_laplace_filter
 
 
-def extract_fingerprints(audio_file, use_laplace=False):
+def extract_fingerprints(audio_file, use_laplace=False, from_mic=False):
     fs, data = load_audio(audio_file)
 
     if use_laplace:
@@ -25,14 +25,23 @@ def extract_fingerprints(audio_file, use_laplace=False):
     for time_idx in range(0, Sxx.shape[1], step):
         col = Sxx[:, time_idx]
 
-        # AJUSTE 2: Bajamos la prominencia (1.0) para que el micro capte más picos
-        peaks, _ = find_peaks(col, prominence=0.5, distance=10)
+        # AJUSTE 2: Ajustar prominencia según la fuente
+        # Para micrófono: ser permisivo para captar los picos principales
+        # Para archivos: igual
+        if from_mic:
+            prominence = 0.4  # Permisivo para micrófono
+            max_peaks = 8     # Bastantes picos por ventana
+        else:
+            prominence = 0.5  # Normal para archivos
+            max_peaks = 6     # Picos por ventana
+            
+        peaks, _ = find_peaks(col, prominence=prominence, distance=10)
 
         if len(peaks) > 0:
             # AJUSTE 3: ORDENAR POR INTENSIDAD.
             # Tomamos los picos con más energía (magnitud) en lugar de los primeros que aparezcan.
             peaks = peaks[np.argsort(col[peaks])][::-1]
-            peaks = peaks[:6]  # Nos quedamos con los 6 más fuertes
+            peaks = peaks[:max_peaks]
 
             for p in peaks:
                 # Guardamos: (frecuencia, tiempo_en_segundos)
@@ -42,8 +51,10 @@ def extract_fingerprints(audio_file, use_laplace=False):
     # En lugar de solo emparejar picos del mismo instante, buscamos picos futuros.
     # Esto genera el "delta_t" que hace que el hash sea único pero independiente del inicio.
     for i in range(len(all_peaks)):
-        # Miramos los siguientes 10 picos encontrados (zona de búsqueda)
-        for j in range(i + 1, min(i + 15, len(all_peaks))):
+        # Miramos los siguientes picos encontrados (zona de búsqueda)
+        # Para micrófono: búsqueda más amplia
+        search_range = 20 if from_mic else 15
+        for j in range(i + 1, min(i + search_range, len(all_peaks))):
             f1, t1 = all_peaks[i]
             f2, t2 = all_peaks[j]
 

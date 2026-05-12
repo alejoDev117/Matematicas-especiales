@@ -3,6 +3,7 @@ import librosa
 import matplotlib
 matplotlib.use('Agg')
 import matplotlib.pyplot as plt
+from matplotlib.patches import Rectangle
 from scipy.signal import spectrogram, butter, lfilter
 from pathlib import Path
 from datetime import datetime
@@ -46,19 +47,27 @@ def apply_laplace_filter(data):
 
 
 def apply_cleaning(data, fs):
-    # Bajamos el corte a 150Hz para mantener las notas musicales
-    cutoff = 150
+    # Filtro paso-alto para eliminar frecuencias muy bajas (rumble, ruido de ventilador)
+    cutoff_low = 80  # Hz - mucho más bajo para mantener bajos musicales
     nyquist = 0.5 * fs
-    normal_cutoff = cutoff / nyquist
-    b, a = butter(5, normal_cutoff, btype='high', analog=False)
-    data = lfilter(b, a, data)
-
-    # NO uses np.where a 0. Usa una reducción suave (Soft Gate)
-    # Esto mantiene la forma de la onda pero baja el siseo de fondo
-    threshold = 0.01
+    normal_cutoff_low = cutoff_low / nyquist
+    b_low, a_low = butter(4, normal_cutoff_low, btype='high', analog=False)
+    data = lfilter(b_low, a_low, data)
+    
+    # Filtro paso-bajo para eliminar frecuencias muy altas (siseos, artefactos)
+    # La mayoría de instrumentos musicales están bajo 8kHz
+    cutoff_high = 8000  # Hz
+    normal_cutoff_high = cutoff_high / nyquist
+    b_high, a_high = butter(4, normal_cutoff_high, btype='low', analog=False)
+    data = lfilter(b_high, a_high, data)
+    
+    # Noise Gate suave: reducir el ruido de forma más gentil
+    # Usar threshold adaptativo basado en RMS
+    rms = np.sqrt(np.mean(data**2))
+    threshold = rms * 0.2  # 20% del RMS como threshold (menos agresivo)
     mask = np.abs(data) < threshold
-    data[mask] *= 0.2  # En lugar de borrar, baja el volumen del ruido
-
+    data[mask] *= 0.3  # Reducir suavemente el ruido de fondo
+    
     return data.astype(np.float32)
 
 
@@ -96,15 +105,11 @@ def build_output_name(prefix, source_name, suffix, ext='png'):
     return f"{safe_prefix}_{safe_source}_{suffix}_{timestamp}.{ext}"
 
 
-def save_spectrogram_figure(audio_path, output_dir, output_name, n_fft=2048, start_sec=None, end_sec=None):
-    if start_sec is not None and end_sec is not None and end_sec > start_sec:
-        duration = end_sec - start_sec
-        fs, data = load_audio(str(audio_path), offset=start_sec, duration=duration)
-        title_suffix = f' [{start_sec:.2f}s - {end_sec:.2f}s]'
-    else:
-        fs, data = load_audio(str(audio_path))
-        title_suffix = ''
-
+def save_spectrogram_figure(audio_path, output_dir, output_name, n_fft=2048, start_sec=None, end_sec=None, highlight_range=None):
+    # Siempre carga la canción completa (a menos que se especifique específicamente start_sec/end_sec sin highlight)
+    fs, data = load_audio(str(audio_path))
+    title_suffix = ''
+    
     if len(data) == 0:
         raise ValueError(f'No se pudo cargar audio para graficar: {audio_path}')
 
@@ -129,6 +134,24 @@ def save_spectrogram_figure(audio_path, output_dir, output_name, n_fft=2048, sta
         extent=[t_plot[0], t_plot[-1], f_plot[0], f_plot[-1]],
         interpolation='nearest',
     )
+    
+    # Si tenemos un rango a resaltar, dibujamos un rectángulo rojo
+    if highlight_range is not None:
+        highlight_start, highlight_end = highlight_range
+        if highlight_start is not None and highlight_end is not None:
+            title_suffix = f' (match en {highlight_start:.2f}s - {highlight_end:.2f}s)'
+            # Dibujar rectángulo rojo alrededor del rango de coincidencia
+            rect = Rectangle(
+                (highlight_start, f_plot[0]),
+                highlight_end - highlight_start,
+                f_plot[-1] - f_plot[0],
+                linewidth=2.5,
+                edgecolor='red',
+                facecolor='none',
+                linestyle='--'
+            )
+            ax.add_patch(rect)
+    
     ax.set_title(f'Espectrograma - {Path(audio_path).name}{title_suffix}')
     ax.set_xlabel('Tiempo [s]')
     ax.set_ylabel('Frecuencia [Hz]')
