@@ -17,18 +17,32 @@ pip install -r requirements.txt
 ### Diagrama de Paquetes
 
 ```mermaid
-graph LR
-    MAIN["main.py"]
+graph TB
+    subgraph PROYECTO["📦 Proyecto"]
+        subgraph MAIN["main.py"]
+        end
+        
+        subgraph SCRIPTS["📁 scripts/"]
+            BUILD["build_db.py"]
+            RECOG["recognize.py"]
+            FINGER["fingerprint.py"]
+            SIGNAL["signal_processing.py"]
+        end
+        
+        subgraph DATA["📁 data/"]
+            DB["db.pkl"]
+            SONGS["songs/"]
+            INPUT["input/"]
+            OUTPUT["output/"]
+        end
+    end
     
-    MAIN --> BUILD["build_db.py"]
-    MAIN --> RECOG["recognize.py"]
-    
-    BUILD --> FINGER["fingerprint.py"]
+    MAIN --> BUILD
+    MAIN --> RECOG
+    BUILD --> FINGER
     RECOG --> FINGER
-    
-    FINGER --> SIGNAL["signal_processing.py"]
-    
-    BUILD --> DB["data/db.pkl"]
+    FINGER --> SIGNAL
+    BUILD --> DB
     RECOG --> DB
 ```
 
