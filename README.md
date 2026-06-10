@@ -21,22 +21,22 @@ graph TB
     subgraph APP["🎯 CAPA DE PRESENTACIÓN"]
         MAIN["main.py<br/>(Interfaz del Usuario)"]
     end
-    
+
     subgraph LOGIC["⚙️ CAPA DE LÓGICA DE NEGOCIO"]
         BUILD["build_db.py<br/>(Constructor DB)"]
         RECOG["recognize.py<br/>(Motor Reconocimiento)"]
     end
-    
+
     subgraph PROCESSING["🔬 CAPA DE PROCESAMIENTO"]
         FINGER["fingerprint.py<br/>(Extracción Hashes)"]
         SIGNAL["signal_processing.py<br/>(Procesamiento Señal)"]
     end
-    
+
     subgraph DATA["💾 CAPA DE DATOS"]
         DB["db.pkl<br/>(Base de Datos)"]
         CACHE["Catálogo de Canciones"]
     end
-    
+
     MAIN --> BUILD
     MAIN --> RECOG
     BUILD --> FINGER
