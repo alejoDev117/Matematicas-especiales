@@ -6,7 +6,7 @@ from scripts.recognize import recognize_from_mic, recognize_from_file
 
 def show_menu():
     while True:
-        print("\n--- Bienvenido al Shazam Casero! ---")
+        print("\n--- Bienvenido SonicHash ---")
         print("1. Construir/actualizar repositorio de canciones")
         print("2. Reconocer canción")
         print("3. Lista de canciones")
